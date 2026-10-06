@@ -93,8 +93,14 @@
 
   function createEntry(char, index) {
     if (/^\s+$/u.test(char)) return { char, body: null };
-    const size = width < 600 ? 25 : 31;
-    context.font = `500 ${size}px Consolas, "Microsoft YaHei", monospace`;
+    // Capture the rendered editor font at birth in zoom-independent world units.
+    // Existing entries keep this snapshot when the user changes zoom later.
+    const textStyle = getComputedStyle(input);
+    const pageScale = (devicePixelRatio || 1) / initialPixelRatio;
+    const pinchScale = viewport?.scale || 1;
+    const size = parseFloat(textStyle.fontSize) * pageScale * pinchScale;
+    const font = `${textStyle.fontStyle} ${textStyle.fontWeight} ${size}px ${textStyle.fontFamily}`;
+    context.font = font;
     const glyphWidth = Math.max(size * .52, context.measureText(char).width);
     const x = size + Math.random() * Math.max(1, width - size * 2);
     const y = -size - Math.floor(index / Math.max(1, Math.floor(width / (size * 2)))) * size * 2;
@@ -106,7 +112,7 @@
     Body.setVelocity(body, { x: (Math.random() - .5) * 2, y: 1 + Math.random() });
     Body.setAngularVelocity(body, (Math.random() - .5) * .05);
     Composite.add(engine.world, body);
-    return { char, body, size, hue: Math.random() * 360 };
+    return { char, body, size, font, hue: Math.random() * 360 };
   }
 
   function burst(x, y, count) {
@@ -174,7 +180,7 @@
       if (body.position.y < -entry.size || body.position.y > height + entry.size) continue;
       context.save();
       context.translate(body.position.x, body.position.y); context.rotate(body.angle);
-      context.font = `500 ${entry.size}px Consolas, "Microsoft YaHei", monospace`;
+      context.font = entry.font;
       context.fillStyle = `hsla(${entry.hue}, 58%, 86%, .64)`;
       context.fillText(entry.char, 0, 0); context.restore();
     }
