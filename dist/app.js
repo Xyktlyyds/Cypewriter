@@ -1,4 +1,11 @@
 const editor=document.querySelector('textarea'),mirror=document.querySelector('#mirror'),caret=document.querySelector('#caret');
+const textPixelRatio = devicePixelRatio || 1;
+function sizeEditorText() {
+ const physicalWidth = innerWidth * (devicePixelRatio || 1) / textPixelRatio;
+ document.documentElement.style.setProperty('--editor-font-size', Math.max(24, Math.min(38, physicalWidth * .03)) + 'px');
+}
+sizeEditorText();
+addEventListener('resize', sizeEditorText);
 let composing=false;
 function positionCaret(){
  mirror.replaceChildren(document.createTextNode(editor.value.slice(0,editor.selectionStart)));

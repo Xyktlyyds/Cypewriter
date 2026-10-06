@@ -13,6 +13,10 @@
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
   const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
   const split = text => segmenter ? Array.from(segmenter.segment(text), item => item.segment) : Array.from(text);
+  // Physics runs in a coordinate system independent of page and pinch zoom.
+  const initialPixelRatio = devicePixelRatio || 1;
+  const renderRatio = Math.min(initialPixelRatio, 2);
+  const viewport = window.visualViewport;
   let width = innerWidth, height = innerHeight, boundaries = [], entries = [], particles = [];
   let previous = [], composition = false, frame = 0, last = 0, accumulator = 0;
   let audio = null, lastPop = -Infinity;
@@ -52,10 +56,24 @@
 
   function resize() {
     const oldWidth = width, oldHeight = height;
-    width = innerWidth; height = innerHeight;
-    const ratio = Math.min(devicePixelRatio || 1, 2);
-    layer.width = Math.round(width * ratio); layer.height = Math.round(height * ratio);
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const pageScale = (devicePixelRatio || 1) / initialPixelRatio;
+    const pinchScale = viewport?.scale || 1;
+    const viewWidth = viewport?.width || innerWidth;
+    const viewHeight = viewport?.height || innerHeight;
+    const nextWidth = Math.round(viewWidth * pageScale * pinchScale);
+    const nextHeight = Math.round(viewHeight * pageScale * pinchScale);
+    // Browser zoom rounds viewport CSS dimensions. Ignore that tiny jitter.
+    const geometryChanged = !boundaries.length || Math.abs(nextWidth - width) > 3 || Math.abs(nextHeight - height) > 3;
+    if (geometryChanged) { width = nextWidth; height = nextHeight; }
+    layer.style.width = `${viewWidth * pinchScale}px`;
+    layer.style.height = `${viewHeight * pinchScale}px`;
+    layer.style.left = `${viewport?.offsetLeft || 0}px`;
+    layer.style.top = `${viewport?.offsetTop || 0}px`;
+    layer.style.transformOrigin = '0 0';
+    layer.style.transform = `scale(${1 / pinchScale})`;
+    layer.width = Math.round(width * renderRatio); layer.height = Math.round(height * renderRatio);
+    context.setTransform(renderRatio, 0, 0, renderRatio, 0, 0);
+    if (!geometryChanged) { paint(0); return; }
     boundaries.forEach(body => Composite.remove(engine.world, body));
     boundaries = [
       Bodies.rectangle(width / 2, height + 25, width + 100, 50, { isStatic: true, friction: .8 }),
@@ -129,7 +147,8 @@
     }
     if (removed.length && !deletedVisible) {
       const cursor = document.querySelector('#caret').getBoundingClientRect();
-      burst(cursor.left, cursor.top, 16);
+      const rect = layer.getBoundingClientRect();
+      burst((cursor.left - rect.left) * width / rect.width, (cursor.top - rect.top) * height / rect.height, 16);
     }
     if (removed.length) {
       pop();
@@ -184,6 +203,8 @@
     else wake();
   });
   addEventListener('resize', resize);
+  viewport?.addEventListener('resize', resize);
+  viewport?.addEventListener('scroll', resize);
   resize();
   if (input.value) sync();
 })();
