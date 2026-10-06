@@ -45,3 +45,5 @@ dist/
 ```
 
 采用原生 HTML、CSS 和 JavaScript，使用 Matter.js 模拟重力与碰撞，使用 Web Audio API 合成删除音效。依赖已包含在项目中，无需安装或构建；部署时将 `dist` 作为静态网站目录即可。
+
+![Cypewriter 网站截图](docs/images/CypeWriter.png)
