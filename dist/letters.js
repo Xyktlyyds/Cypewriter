@@ -1,0 +1,189 @@
+(() => {
+  'use strict';
+  const input = document.querySelector('textarea');
+  const layer = document.createElement('canvas');
+  layer.id = 'letters';
+  layer.setAttribute('aria-hidden', 'true');
+  document.body.prepend(layer);
+  const context = layer.getContext('2d');
+  if (!context || !window.Matter) return;
+  const { Engine, Bodies, Body, Composite, Sleeping } = Matter;
+  const engine = Engine.create({ enableSleeping: true, positionIterations: 8, velocityIterations: 6 });
+  engine.gravity.y = 1.05;
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  const split = text => segmenter ? Array.from(segmenter.segment(text), item => item.segment) : Array.from(text);
+  let width = innerWidth, height = innerHeight, boundaries = [], entries = [], particles = [];
+  let previous = [], composition = false, frame = 0, last = 0, accumulator = 0;
+  let audio = null, lastPop = -Infinity;
+  const colors = ['#ff6b92', '#ffd36e', '#66e8cc', '#74bbff', '#c397ff', '#ffffff'];
+
+  function unlockAudio() {
+    try {
+      if (!audio) {
+        const Audio = window.AudioContext || window.webkitAudioContext;
+        if (Audio) audio = new Audio();
+      }
+      if (audio?.state === 'suspended') audio.resume().catch(() => {});
+    } catch (_) { /* Visual feedback remains available without audio. */ }
+  }
+  input.addEventListener('beforeinput', unlockAudio);
+  input.addEventListener('keydown', unlockAudio);
+  document.addEventListener('pointerdown', unlockAudio, { passive: true });
+
+  function pop() {
+    if (!audio || audio.state !== 'running' || audio.currentTime - lastPop < .04) return;
+    const now = audio.currentTime;
+    lastPop = now;
+    const gain = audio.createGain();
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(.13, now + .003);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + .095);
+    gain.connect(audio.destination);
+    const oscillator = audio.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(1300, now);
+    oscillator.frequency.exponentialRampToValueAtTime(360, now + .065);
+    oscillator.connect(gain);
+    oscillator.start(now);
+    oscillator.stop(now + .1);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+  }
+
+  function resize() {
+    const oldWidth = width, oldHeight = height;
+    width = innerWidth; height = innerHeight;
+    const ratio = Math.min(devicePixelRatio || 1, 2);
+    layer.width = Math.round(width * ratio); layer.height = Math.round(height * ratio);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    boundaries.forEach(body => Composite.remove(engine.world, body));
+    boundaries = [
+      Bodies.rectangle(width / 2, height + 25, width + 100, 50, { isStatic: true, friction: .8 }),
+      Bodies.rectangle(-25, -height, 50, height * 6, { isStatic: true }),
+      Bodies.rectangle(width + 25, -height, 50, height * 6, { isStatic: true })
+    ];
+    Composite.add(engine.world, boundaries);
+    for (const entry of entries) if (entry.body) {
+      Body.setPosition(entry.body, {
+        x: Math.max(entry.size, Math.min(width - entry.size, entry.body.position.x * width / oldWidth)),
+        y: Math.min(height - entry.size / 2, entry.body.position.y + height - oldHeight)
+      });
+      Sleeping.set(entry.body, false);
+    }
+    wake();
+  }
+
+  function createEntry(char, index) {
+    if (/^\s+$/u.test(char)) return { char, body: null };
+    const size = width < 600 ? 25 : 31;
+    context.font = `500 ${size}px Consolas, "Microsoft YaHei", monospace`;
+    const glyphWidth = Math.max(size * .52, context.measureText(char).width);
+    const x = size + Math.random() * Math.max(1, width - size * 2);
+    const y = -size - Math.floor(index / Math.max(1, Math.floor(width / (size * 2)))) * size * 2;
+    const body = Bodies.rectangle(x, y, glyphWidth + 3, size + 2, {
+      restitution: .32, friction: .72, frictionStatic: .9, frictionAir: .007,
+      density: .002, sleepThreshold: 70, chamfer: { radius: 2 }
+    });
+    Body.setAngle(body, (Math.random() - .5) * .55);
+    Body.setVelocity(body, { x: (Math.random() - .5) * 2, y: 1 + Math.random() });
+    Body.setAngularVelocity(body, (Math.random() - .5) * .05);
+    Composite.add(engine.world, body);
+    return { char, body, size, hue: Math.random() * 360 };
+  }
+
+  function burst(x, y, count) {
+    if (motion.matches) return;
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2, speed = 75 + Math.random() * 210;
+      particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 130,
+        life: .65 + Math.random() * .65, maxLife: 1.3, angle, spin: (Math.random() - .5) * 14,
+        color: colors[Math.floor(Math.random() * colors.length)], size: 3 + Math.random() * 4 });
+    }
+    if (particles.length > 1200) particles.splice(0, particles.length - 1200);
+  }
+
+  let selection = null;
+  input.addEventListener('beforeinput', event => {
+    if (!composition) selection = { start: input.selectionStart, end: input.selectionEnd, type: event.inputType };
+  });
+  function sync() {
+    if (composition) return;
+    const next = split(input.value);
+    let start = 0;
+    // Use the original selection to disambiguate deleting or inserting repeated characters.
+    let limit = selection ? split(previous.join('').slice(0, selection.start)).length : Math.min(previous.length, next.length);
+    if (selection?.type === 'deleteContentBackward' && selection.start === selection.end) {
+      limit = Math.max(0, limit - Math.max(0, previous.length - next.length));
+    }
+    if (selection?.type === 'historyUndo' || selection?.type === 'historyRedo') limit = Math.min(previous.length, next.length);
+    while (start < limit && start < next.length && previous[start] === next[start]) start++;
+    let oldEnd = previous.length, newEnd = next.length;
+    while (oldEnd > start && newEnd > start && previous[oldEnd - 1] === next[newEnd - 1]) { oldEnd--; newEnd--; }
+    const removed = entries.slice(start, oldEnd);
+    const burstCount = Math.max(2, Math.min(22, Math.floor(900 / Math.max(1, removed.length))));
+    let deletedVisible = false;
+    for (const entry of removed) if (entry.body) {
+      deletedVisible = true;
+      burst(Math.max(10, Math.min(width - 10, entry.body.position.x)), Math.max(20, Math.min(height - 12, entry.body.position.y)), burstCount);
+      Composite.remove(engine.world, entry.body);
+    }
+    if (removed.length && !deletedVisible) {
+      const cursor = document.querySelector('#caret').getBoundingClientRect();
+      burst(cursor.left, cursor.top, 16);
+    }
+    if (removed.length) {
+      pop();
+      entries.forEach(entry => { if (entry.body) Sleeping.set(entry.body, false); });
+    }
+    const added = next.slice(start, newEnd).map(createEntry);
+    entries.splice(start, oldEnd - start, ...added);
+    previous = next; selection = null;
+    wake();
+  }
+  input.addEventListener('compositionstart', () => {
+    selection = { start: input.selectionStart, end: input.selectionEnd, type: 'insertCompositionText' };
+    composition = true;
+  });
+  input.addEventListener('compositionend', () => { composition = false; sync(); });
+  input.addEventListener('input', sync);
+
+  function paint(dt) {
+    context.clearRect(0, 0, width, height);
+    context.textAlign = 'center'; context.textBaseline = 'middle';
+    for (const entry of entries) if (entry.body) {
+      const body = entry.body;
+      if (body.position.y < -entry.size || body.position.y > height + entry.size) continue;
+      context.save();
+      context.translate(body.position.x, body.position.y); context.rotate(body.angle);
+      context.font = `500 ${entry.size}px Consolas, "Microsoft YaHei", monospace`;
+      context.fillStyle = `hsla(${entry.hue}, 58%, 86%, .64)`;
+      context.fillText(entry.char, 0, 0); context.restore();
+    }
+    particles = particles.filter(particle => particle.life > 0);
+    for (const p of particles) {
+      p.life -= dt; p.vy += 420 * dt; p.vx *= Math.exp(-1.1 * dt);
+      p.x += p.vx * dt; p.y += p.vy * dt; p.angle += p.spin * dt;
+      context.save(); context.translate(p.x, p.y); context.rotate(p.angle);
+      context.globalAlpha = Math.min(1, Math.max(0, p.life * 2)); context.fillStyle = p.color;
+      context.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); context.restore();
+    }
+  }
+  function tick(now) {
+    frame = 0;
+    if (document.hidden) { last = 0; return; }
+    const dt = last ? Math.min((now - last) / 1000, .05) : 1 / 60;
+    last = now; accumulator += dt;
+    while (accumulator >= 1 / 60) { Engine.update(engine, 1000 / 60); accumulator -= 1 / 60; }
+    paint(dt);
+    if (particles.length || entries.some(entry => entry.body && !entry.body.isSleeping)) frame = requestAnimationFrame(tick);
+    else { last = 0; accumulator = 0; }
+  }
+  function wake() { if (!frame && !document.hidden) { last = 0; frame = requestAnimationFrame(tick); } }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { cancelAnimationFrame(frame); frame = 0; last = 0; }
+    else wake();
+  });
+  addEventListener('resize', resize);
+  resize();
+  if (input.value) sync();
+})();
