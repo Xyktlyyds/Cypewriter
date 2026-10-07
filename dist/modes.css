@@ -22,3 +22,9 @@ body[data-mode=essay][data-phase=writing] .essay-finish,body[data-mode=essay][da
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:600px){.mode-sidebar{right:14px;top:43%}.mode-handle,.mode-choice,.essay-finish{font-size:16px}.essay-finish{right:24px;top:24px}.essay-prompt{top:-44px;font-size:16px}}
 @media(prefers-reduced-motion:reduce){.mode-options,.mode-handle,.mode-choice,.essay-prompt,.essay-finish,.essay-goal,.goal-fill{transition:none}.invalid-shake,.finish-shake{animation:none}}
+.essay-confirm{position:absolute;top:-46px;left:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 18px;max-width:100%;color:#e6e0ef;font:400 18px/1.5 "Cascadia Code",Consolas,"Microsoft YaHei",monospace;opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .5s,transform .5s,visibility 0s .5s;pointer-events:none}
+.confirm-options{display:inline-flex;gap:8px}.confirm-yes,.confirm-no{appearance:none;border:0;border-radius:0;background:none;box-shadow:none;padding:5px 0;color:#ece8f3;font:inherit;cursor:pointer;white-space:nowrap}.confirm-yes:hover,.confirm-no:hover{color:#fff}.confirm-yes:focus-visible,.confirm-no:focus-visible{outline:0;text-decoration:underline;text-underline-offset:6px}
+body[data-mode=essay][data-phase=confirm] .essay-confirm{opacity:1;visibility:visible;transform:translateY(0);transition-delay:0s;pointer-events:auto}
+body[data-mode=essay][data-phase=confirm] .essay-finish,body[data-mode=essay][data-phase=confirm] .essay-goal{opacity:1;visibility:visible;transform:translateY(0);transition-delay:0s}
+@media(max-width:600px){.essay-confirm{top:-84px;font-size:16px;gap:4px 12px}}
+@media(prefers-reduced-motion:reduce){.essay-confirm{transition:none}}

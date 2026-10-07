@@ -19,7 +19,7 @@
   const viewport = window.visualViewport;
   let width = innerWidth, height = innerHeight, boundaries = [], entries = [], particles = [];
   let previous = [], composition = false, frame = 0, last = 0, accumulator = 0;
-  let audio = null, lastPop = -Infinity;
+  let audio = null, lastPop = -Infinity, quietUntil = 0;
   let clearEpoch = 0;
   const colors = ['#ff6b92', '#ffd36e', '#66e8cc', '#74bbff', '#c397ff', '#ffffff'];
 
@@ -37,7 +37,7 @@
   document.addEventListener('pointerdown', unlockAudio, { passive: true });
 
   function pop() {
-    if (!audio || audio.state !== 'running' || audio.currentTime - lastPop < .04) return;
+    if (!audio || audio.state !== 'running' || audio.currentTime < quietUntil || audio.currentTime - lastPop < .04) return;
     const now = audio.currentTime;
     lastPop = now;
     const gain = audio.createGain();
@@ -206,6 +206,40 @@
   }
   function wake() { if (!frame && !document.hidden) { last = 0; frame = requestAnimationFrame(tick); } }
   window.CypeLetters = {
+    modeSound() {
+      unlockAudio();
+      if (!audio || audio.state !== 'running') return;
+      const now = Math.max(audio.currentTime, quietUntil);
+      const tone = audio.createOscillator(), gain = audio.createGain();
+      tone.type = 'sine'; tone.frequency.setValueAtTime(1850, now);
+      gain.gain.setValueAtTime(.0001, now); gain.gain.exponentialRampToValueAtTime(.09, now + .004); gain.gain.exponentialRampToValueAtTime(.0001, now + .28);
+      tone.connect(gain); gain.connect(audio.destination); tone.start(now); tone.stop(now + .3);
+      tone.onended = () => {tone.disconnect(); gain.disconnect();};
+    },
+    completionSound() {
+      unlockAudio();
+      if (!audio || audio.state !== 'running') return Promise.resolve();
+      const now = Math.max(audio.currentTime, lastPop + .11);
+      quietUntil = now + .8;
+      const tones = [];
+      function voice(start, duration, from, to, volume) {
+        const tone = audio.createOscillator(), gain = audio.createGain();
+        tone.type = 'sine'; tone.frequency.setValueAtTime(from, start); tone.frequency.exponentialRampToValueAtTime(to, start + duration * .55);
+        gain.gain.setValueAtTime(.0001, start); gain.gain.exponentialRampToValueAtTime(volume, start + .008); gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+        tone.connect(gain); gain.connect(audio.destination); tone.start(start); tone.stop(start + duration); tones.push(tone);
+        tone.onended = () => {tone.disconnect(); gain.disconnect();};
+      }
+      voice(now, .2, 720, 180, .12);
+      voice(now + .21, .55, 1050, 1700, .1);
+      voice(now + .21, .5, 2100, 2550, .035);
+      return new Promise(resolve => {
+        const wait = () => {
+          if (audio.state !== 'running' || audio.currentTime >= quietUntil) {resolve(); return;}
+          setTimeout(wait, Math.max(20, (quietUntil - audio.currentTime) * 1000));
+        };
+        setTimeout(wait, Math.max(0, (quietUntil - audio.currentTime) * 1000));
+      });
+    },
     celebrateAt(rect, milestones = 1) {
       const canvasRect = layer.getBoundingClientRect();
       if (!canvasRect.width || !canvasRect.height) return;

@@ -2,7 +2,7 @@
   'use strict';
   const input = document.querySelector('textarea');
   const writing = document.querySelector('.writing');
-  writing.insertAdjacentHTML('afterbegin', `<div class="essay-prompt" aria-hidden="true"><span id="word-label">写多少字</span></div>`);
+  writing.insertAdjacentHTML('afterbegin', `<div class="essay-prompt" aria-hidden="true"><span id="word-label">写多少字</span></div><div class="essay-confirm" aria-hidden="true"><span>继续会删除当前的内容，是否继续</span><span class="confirm-options"><button class="confirm-yes">「是」</button><button class="confirm-no">「不是」</button></span></div>`);
   document.body.insertAdjacentHTML('beforeend', `
     <aside class="mode-sidebar" aria-label="切换打字模式">
       <button class="mode-handle" aria-label="展开模式侧边栏" aria-expanded="false" aria-controls="mode-options">「模式」</button>
@@ -18,6 +18,8 @@
   const finish = document.querySelector('.essay-finish');
   const prompt = document.querySelector('.essay-prompt');
   const wordLabel = document.querySelector('#word-label');
+  const confirm = document.querySelector('.essay-confirm');
+  const yes = document.querySelector('.confirm-yes'), no = document.querySelector('.confirm-no');
   const goal = document.querySelector('.essay-goal');
   const fill = document.querySelector('.goal-fill');
   const status = document.querySelector('#essay-status');
@@ -53,15 +55,19 @@
   function setPhase(value) {
     phase = value; document.body.dataset.phase = value;
     prompt.setAttribute('aria-hidden', String(value !== 'setup'));
+    confirm.setAttribute('aria-hidden', String(value !== 'confirm'));
+    confirm.inert = value !== 'confirm';
     input.inputMode = value === 'setup' ? 'numeric' : 'text';
     input.enterKeyHint = value === 'setup' ? 'done' : 'enter';
     input.setAttribute('aria-label', value === 'setup' ? '输入作文目标字数，按 Enter 确认' : mode === 'essay' ? '输入作文' : '自由输入文字');
-    finish.setAttribute('aria-hidden', String(value !== 'writing'));
-    goal.setAttribute('aria-hidden', String(value !== 'writing'));
-    finish.disabled = value !== 'writing' || scenes.essay.done || completing;
+    finish.setAttribute('aria-hidden', String(!['writing','confirm'].includes(value)));
+    goal.setAttribute('aria-hidden', String(!['writing','confirm'].includes(value)));
+    finish.textContent = scenes.essay.done ? '「继续」' : '「完成」';
+    finish.disabled = value !== 'writing' || completing;
+    input.readOnly = value === 'confirm' || value === 'resetting' || completing;
   }
   function updateGoal() {
-    if (mode !== 'essay' || phase !== 'writing' || !scenes.essay.target) return;
+    if (mode !== 'essay' || !['writing','confirm'].includes(phase) || !scenes.essay.target) return;
     const target = scenes.essay.target, current = countWords(input.value);
     const progress = Math.min(1, current / target);
     const metrics = window.CypeLetters?.metrics(target);
@@ -103,6 +109,7 @@
     if (mode === 'essay' && phase === 'setup') { current.setupText = input.value; current.setupScene = window.CypeLetters?.capture(); }
     else { current.text = input.value; current.scene = window.CypeLetters?.capture(); }
     mode = next; document.body.dataset.mode = next;
+    window.CypeFluid?.setMode(next); window.CypeLetters?.modeSound();
     const scene = scenes[next];
     const setup = next === 'essay' && !scene.target;
     const text = setup ? scene.setupText : scene.text;
@@ -126,7 +133,7 @@
     if (composing || restoring) return;
     if (input.hasAttribute('aria-invalid')) input.removeAttribute('aria-invalid');
     if (mode === 'essay' && phase === 'writing') {
-      if (!completing) { scenes.essay.done = false; finish.disabled = false; }
+      if (!completing) finish.disabled = false;
       scenes.essay.text = input.value; updateGoal(); celebrateProgress();
     }
   }
@@ -146,6 +153,9 @@
   });
   finish.addEventListener('click', async () => {
     if (mode !== 'essay' || phase !== 'writing' || completing || composing) return;
+    if (scenes.essay.done) {
+      window.CypeFluid?.reset(); setPhase('confirm'); yes.focus(); return;
+    }
     if (countWords(input.value) < scenes.essay.target) {
       const chars = split(input.value);
       // Ignore trailing whitespace when choosing the final counted character.
@@ -155,11 +165,39 @@
       shake(finish, 'finish-shake'); status.textContent = '字数未达标，最后一个字已删除'; input.focus(); return;
     }
     const token = ++epoch; completing = true; finish.disabled = true; input.readOnly = true;
+    window.CypeFluid?.start();
+    await window.CypeLetters?.completionSound();
+    if (token !== epoch || mode !== 'essay') return;
     await window.CypeLetters?.clearTopDown();
     if (token !== epoch || mode !== 'essay') return;
-    completing = false; scenes.essay.done = true; input.readOnly = false;
+    completing = false; scenes.essay.done = true; setPhase('writing');
     status.textContent = `作文已完成，共 ${countWords(input.value)} 字`;
     input.focus();
+  });
+  no.addEventListener('click', () => {
+    if (mode !== 'essay' || phase !== 'confirm' || completing) return;
+    setPhase('writing'); input.focus();
+  });
+  yes.addEventListener('click', async () => {
+    if (mode !== 'essay' || phase !== 'confirm' || completing) return;
+    const token = ++epoch; completing = true; setPhase('resetting');
+    await window.CypeLetters?.clearTopDown();
+    if (token !== epoch || mode !== 'essay') return;
+    // Remove the prose from its first line down, with the existing deletion feedback.
+    let chars = split(input.value);
+    const batch = Math.max(1, Math.ceil(chars.length / 30));
+    while (chars.length) {
+      chars.splice(0, batch); changeText(chars.join(''));
+      await new Promise(resolve => setTimeout(resolve, 35));
+      if (token !== epoch || mode !== 'essay') return;
+    }
+    window.CypeLetters?.restore(null, '');
+    Object.assign(scenes.essay, {text:'', setupText:'', scene:null, setupScene:null, target:null, done:false, celebrated:-1});
+    completing = false; fill.style.transform = 'scaleX(0)'; setPhase('setup'); input.focus();
+    status.textContent = '已清空，可以输入新的目标字数';
+  });
+  confirm.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {event.preventDefault(); no.dispatchEvent(new Event('click'));}
   });
   addEventListener('resize', updateGoal);
   window.visualViewport?.addEventListener('resize', updateGoal);
