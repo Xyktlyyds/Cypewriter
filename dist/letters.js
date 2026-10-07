@@ -206,6 +206,13 @@
   }
   function wake() { if (!frame && !document.hidden) { last = 0; frame = requestAnimationFrame(tick); } }
   window.CypeLetters = {
+    celebrateAt(rect, milestones = 1) {
+      const canvasRect = layer.getBoundingClientRect();
+      if (!canvasRect.width || !canvasRect.height) return;
+      const x = (rect.left + rect.width / 2 - canvasRect.left) * width / canvasRect.width;
+      const y = (rect.top + rect.height / 2 - canvasRect.top) * height / canvasRect.height;
+      burst(x, y, Math.min(80, 28 + Math.max(0, milestones - 1) * 8)); wake();
+    },
     capture() { return { entries: entries.slice(), width, height }; },
     restore(scene, text) {
       clearEpoch++;

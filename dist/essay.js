@@ -2,13 +2,13 @@
   'use strict';
   const input = document.querySelector('textarea');
   const writing = document.querySelector('.writing');
-  writing.insertAdjacentHTML('afterbegin', `<div class="essay-prompt" aria-hidden="true"><span id="word-label">字数</span><span>写多少字？</span></div>`);
+  writing.insertAdjacentHTML('afterbegin', `<div class="essay-prompt" aria-hidden="true"><span id="word-label">写多少字</span></div>`);
   document.body.insertAdjacentHTML('beforeend', `
     <aside class="mode-sidebar" aria-label="切换打字模式">
-      <button class="mode-handle" aria-label="展开模式侧边栏" aria-expanded="false" aria-controls="mode-options"><span></span><span></span><span></span></button>
-      <div id="mode-options" class="mode-options" inert><div><button class="mode-choice" tabindex="-1">作文</button></div></div>
+      <button class="mode-handle" aria-label="展开模式侧边栏" aria-expanded="false" aria-controls="mode-options">「模式」</button>
+      <div id="mode-options" class="mode-options" inert><div><button class="mode-choice" tabindex="-1">「作文」</button></div></div>
     </aside>
-    <button class="essay-finish" disabled aria-hidden="true">完成</button>
+    <button class="essay-finish" disabled aria-hidden="true">「完成」</button>
     <div class="essay-goal" role="progressbar" aria-label="作文字数进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-hidden="true"><span class="goal-fill"></span></div>
     <span class="sr-only" id="essay-status" role="status" aria-live="polite"></span>`);
   const sidebar = document.querySelector('.mode-sidebar');
@@ -26,7 +26,7 @@
   const countWords = text => split(text).filter(char => !/^\s+$/u.test(char)).length;
   const scenes = {
     free: { text: input.value, scene: null },
-    essay: { text: '', setupText: '', scene: null, setupScene: null, target: null, done: false }
+    essay: { text: '', setupText: '', scene: null, setupScene: null, target: null, done: false, celebrated: -1 }
   };
   let mode = 'free', phase = 'free', hoverTimer = 0, hoverLocked = false, opened = false, epoch = 0, completing = false, composing = false, restoring = false;
   document.body.dataset.mode = mode; document.body.dataset.phase = phase;
@@ -39,7 +39,7 @@
   }
   sidebar.addEventListener('pointerenter', event => {
     if (event.pointerType === 'touch' || hoverLocked) return;
-    clearTimeout(hoverTimer); hoverTimer = setTimeout(() => menu(true), 500);
+    clearTimeout(hoverTimer); hoverTimer = setTimeout(() => menu(true), 300);
   });
   sidebar.addEventListener('pointerleave', () => {
     clearTimeout(hoverTimer); hoverLocked = false;
@@ -81,6 +81,15 @@
     input.selectionStart = input.selectionEnd = text.length;
     input.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  function celebrateProgress() {
+    const essay = scenes.essay, current = countWords(input.value);
+    if (current < essay.target || completing) return;
+    const milestone = Math.floor((current - essay.target) / 2);
+    if (milestone <= essay.celebrated) return;
+    const crossed = milestone - essay.celebrated;
+    essay.celebrated = milestone;
+    window.CypeLetters?.celebrateAt(finish.getBoundingClientRect(), crossed);
+  }
   function shake(element, className) {
     element.classList.remove(className); void element.offsetWidth;
     element.classList.add(className);
@@ -101,7 +110,7 @@
     window.CypeLetters?.restore(setup ? scene.setupScene : scene.scene, text);
     input.value = text; input.removeAttribute('aria-invalid');
     wordLabel.classList.remove('invalid-shake'); finish.classList.remove('finish-shake');
-    choice.textContent = next === 'free' ? '作文' : '自由';
+    choice.textContent = next === 'free' ? '「作文」' : '「自由」';
     setPhase(next === 'free' ? 'free' : setup ? 'setup' : 'writing');
     input.selectionStart = input.selectionEnd = text.length;
     restoring = true;
@@ -118,7 +127,7 @@
     if (input.hasAttribute('aria-invalid')) input.removeAttribute('aria-invalid');
     if (mode === 'essay' && phase === 'writing') {
       if (!completing) { scenes.essay.done = false; finish.disabled = false; }
-      scenes.essay.text = input.value; updateGoal();
+      scenes.essay.text = input.value; updateGoal(); celebrateProgress();
     }
   }
   input.addEventListener('input', onInput);
@@ -130,7 +139,7 @@
       input.setAttribute('aria-invalid', 'true'); shake(wordLabel, 'invalid-shake');
       status.textContent = '请输入大于零的整数作为字数'; return;
     }
-    scenes.essay.target = number; scenes.essay.setupText = ''; scenes.essay.setupScene = null;
+    scenes.essay.target = number; scenes.essay.setupText = ''; scenes.essay.setupScene = null; scenes.essay.celebrated = -1;
     changeText(''); scenes.essay.text = ''; scenes.essay.done = false;
     setPhase('writing'); updateGoal(); input.focus();
     status.textContent = `目标 ${number} 字，可以开始写作文了`;
