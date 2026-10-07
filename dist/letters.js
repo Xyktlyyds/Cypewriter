@@ -20,6 +20,7 @@
   let width = innerWidth, height = innerHeight, boundaries = [], entries = [], particles = [];
   let previous = [], composition = false, frame = 0, last = 0, accumulator = 0;
   let audio = null, lastPop = -Infinity;
+  let clearEpoch = 0;
   const colors = ['#ff6b92', '#ffd36e', '#66e8cc', '#74bbff', '#c397ff', '#ffffff'];
 
   function unlockAudio() {
@@ -112,7 +113,7 @@
     Body.setVelocity(body, { x: (Math.random() - .5) * 2, y: 1 + Math.random() });
     Body.setAngularVelocity(body, (Math.random() - .5) * .05);
     Composite.add(engine.world, body);
-    return { char, body, size, font, hue: Math.random() * 360 };
+    return { char, body, size, font, area: body.area, hue: Math.random() * 360 };
   }
 
   function burst(x, y, count) {
@@ -204,6 +205,53 @@
     else { last = 0; accumulator = 0; }
   }
   function wake() { if (!frame && !document.hidden) { last = 0; frame = requestAnimationFrame(tick); } }
+  window.CypeLetters = {
+    capture() { return { entries: entries.slice(), width, height }; },
+    restore(scene, text) {
+      clearEpoch++;
+      entries.forEach(entry => { if (entry.body) Composite.remove(engine.world, entry.body); });
+      Engine.clear(engine);
+      entries = scene?.entries?.slice() || [];
+      if (scene && (scene.width !== width || scene.height !== height)) {
+        for (const entry of entries) if (entry.body) {
+          Body.setPosition(entry.body, { x: Math.max(entry.size / 2, Math.min(width - entry.size / 2, entry.body.position.x * width / scene.width)), y: Math.min(height - entry.size / 2, entry.body.position.y + height - scene.height) });
+          Sleeping.set(entry.body, false);
+        }
+      }
+      entries.forEach(entry => { if (entry.body) Composite.add(engine.world, entry.body); });
+      particles = []; previous = split(text); selection = null; composition = false;
+      input.value = text; paint(0); wake();
+    },
+    metrics(target) {
+      const style = getComputedStyle(input);
+      const size = parseFloat(style.fontSize) * (devicePixelRatio || 1) / initialPixelRatio * (viewport?.scale || 1);
+      context.font = `${style.fontStyle} ${style.fontWeight} ${size}px ${style.fontFamily}`;
+      const futureArea = (context.measureText('文').width + 3) * (size + 2);
+      const visible = entries.filter(entry => entry.size);
+      const writtenArea = visible.reduce((sum, entry) => sum + (entry.area || entry.body?.area || futureArea), 0);
+      const estimatedHeight = (writtenArea + Math.max(0, target - visible.length) * futureArea) / (width * .7);
+      return { width, height, rect: layer.getBoundingClientRect(), pileHeight: Math.min(height - 48, Math.max(size, estimatedHeight)) };
+    },
+    clearTopDown() {
+      const epoch = ++clearEpoch;
+      const total = entries.filter(entry => entry.body).length;
+      const batch = Math.max(1, Math.ceil(total / 40));
+      return new Promise(resolve => {
+        function step() {
+          if (epoch !== clearEpoch) { resolve(false); return; }
+          const remaining = entries.filter(entry => entry.body).sort((a, b) => a.body.position.y - b.body.position.y);
+          if (!remaining.length) { resolve(true); return; }
+          for (const entry of remaining.slice(0, batch)) {
+            burst(Math.max(10, Math.min(width - 10, entry.body.position.x)), Math.max(20, Math.min(height - 12, entry.body.position.y)), Math.max(3, Math.min(18, Math.floor(100 / batch))));
+            Composite.remove(engine.world, entry.body); entry.body = null;
+          }
+          entries.forEach(entry => { if (entry.body) Sleeping.set(entry.body, false); });
+          pop(); wake(); setTimeout(step, motion.matches ? 0 : 45);
+        }
+        step();
+      });
+    }
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { cancelAnimationFrame(frame); frame = 0; last = 0; }
     else wake();
